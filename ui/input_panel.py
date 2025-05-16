@@ -2,365 +2,286 @@
 # -*- coding: utf-8 -*-
 
 """
-Input Panel Module
+Input panel for the Trade Simulator application.
 
-This module implements the InputPanel class, which provides the UI for configuring
-and initiating trade simulations.
+This module implements the input panel of the application, which contains
+the input parameters for the trade simulation.
 """
 
-import numpy as np
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                             QLabel, QLineEdit, QComboBox, QPushButton,
-                             QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox,
-                             QSlider, QTabWidget, QScrollArea)
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from typing import Dict, Any, Optional, List
 
-from utils.logger import setup_logger
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+    QDoubleSpinBox, QGroupBox, QPushButton, QFormLayout,
+    QLineEdit, QSizePolicy
+)
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QFont
+from loguru import logger
+
+from utils.config import get_available_symbols, get_available_fee_tiers
 
 
 class InputPanel(QWidget):
-    """Input panel for configuring and initiating trade simulations."""
+    """Input panel containing simulation parameters."""
     
-    # Signal emitted when execution is requested
-    execution_requested = pyqtSignal(dict)
+    # Signal emitted when parameters change
+    parameters_changed = pyqtSignal(dict)
     
-    def __init__(self):
-        """Initialize the input panel."""
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the input panel.
+        
+        Args:
+            config: Configuration dictionary
+        """
         super().__init__()
         
-        # Setup logger
-        self.logger = setup_logger('input_panel')
-        self.logger.info("Initializing input panel")
+        self.config = config
+        self.parameters = {}
         
-        # Set minimum width
-        self.setMinimumWidth(300)
+        # Set up the UI
+        self._setup_ui()
         
-        # Setup layout
-        self.setup_layout()
+        # Initialize parameters with default values
+        self._initialize_parameters()
         
-        self.logger.info("Input panel initialized")
+        logger.info("Input panel initialized")
     
-    def setup_layout(self):
-        """Setup the input panel layout."""
-        # Main layout
+    def _setup_ui(self) -> None:
+        """Set up the user interface."""
+        # Set panel properties
+        self.setMinimumWidth(350)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        self.setObjectName("input_panel_widget")
+        
+        # Create main layout with improved spacing
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
         
-        # Create scroll area for input fields
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        # Add title with improved styling
+        title_label = QLabel("Input Parameters")
+        title_label.setProperty("title", "true")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        main_layout.addWidget(title_label)
         
-        # Create widget for scroll area
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(10, 10, 10, 10)
+        # Create exchange group with custom styling
+        exchange_group = QGroupBox("Exchange Settings")
+        exchange_group.setObjectName("exchange_group")
+        exchange_layout = QFormLayout()
+        exchange_layout.setVerticalSpacing(10)
+        exchange_layout.setHorizontalSpacing(15)
+        exchange_layout.setContentsMargins(15, 20, 15, 15)
+        exchange_group.setLayout(exchange_layout)
         
-        # Create tab widget for different model configurations
-        tab_widget = QTabWidget()
+        # Exchange selection with improved styling
+        exchange_label = QLabel("Exchange:")
+        exchange_label.setObjectName("form_label")
+        self.exchange_combo = QComboBox()
+        self.exchange_combo.setObjectName("exchange_combo")
+        self.exchange_combo.addItem("OKX")
+        self.exchange_combo.setMinimumHeight(30)
+        self.exchange_combo.currentTextChanged.connect(self._on_exchange_changed)
+        exchange_layout.addRow(exchange_label, self.exchange_combo)
         
-        # Add tabs for different models
-        tab_widget.addTab(self.create_almgren_chriss_tab(), "Almgren-Chriss")
-        tab_widget.addTab(self.create_slippage_tab(), "Slippage")
-        tab_widget.addTab(self.create_maker_taker_tab(), "Maker-Taker")
+        # Symbol selection with improved styling
+        symbol_label = QLabel("Spot Asset:")
+        symbol_label.setObjectName("form_label")
+        self.symbol_combo = QComboBox()
+        self.symbol_combo.setObjectName("symbol_combo")
+        self.symbol_combo.addItems(get_available_symbols(self.config))
+        self.symbol_combo.setMinimumHeight(30)
+        self.symbol_combo.currentTextChanged.connect(self._on_symbol_changed)
+        exchange_layout.addRow(symbol_label, self.symbol_combo)
         
-        # Add tab widget to scroll layout
-        scroll_layout.addWidget(tab_widget)
+        main_layout.addWidget(exchange_group)
         
-        # Add common parameters group
-        scroll_layout.addWidget(self.create_common_params_group())
+        # Create order group with custom styling
+        order_group = QGroupBox("Order Parameters")
+        order_group.setObjectName("order_group")
+        order_layout = QFormLayout()
+        order_layout.setVerticalSpacing(10)
+        order_layout.setHorizontalSpacing(15)
+        order_layout.setContentsMargins(15, 20, 15, 15)
+        order_group.setLayout(order_layout)
         
-        # Add execution button
-        execute_button = QPushButton("Execute Simulation")
-        execute_button.setMinimumHeight(40)
-        execute_button.clicked.connect(self.request_execution)
-        scroll_layout.addWidget(execute_button)
+        # Order type with improved styling
+        order_type_label = QLabel("Order Type:")
+        order_type_label.setObjectName("form_label")
+        self.order_type_combo = QComboBox()
+        self.order_type_combo.setObjectName("order_type_combo")
+        self.order_type_combo.addItem("Market")
+        self.order_type_combo.addItem("Limit")
+        self.order_type_combo.setCurrentText("Market")
+        self.order_type_combo.setMinimumHeight(30)
+        self.order_type_combo.currentTextChanged.connect(self._on_order_type_changed)
+        order_layout.addRow(order_type_label, self.order_type_combo)
         
-        # Add stretch to push everything to the top
-        scroll_layout.addStretch(1)
+        # Quantity with improved styling
+        quantity_label = QLabel("Quantity (~USD):")
+        quantity_label.setObjectName("form_label")
+        self.quantity_spin = QDoubleSpinBox()
+        self.quantity_spin.setObjectName("quantity_spin")
+        self.quantity_spin.setRange(0.01, 1000000.0)
+        self.quantity_spin.setValue(100.0)
+        self.quantity_spin.setSuffix(" USD")
+        self.quantity_spin.setDecimals(2)
+        self.quantity_spin.setSingleStep(10.0)
+        self.quantity_spin.setMinimumHeight(30)
+        self.quantity_spin.valueChanged.connect(self._on_quantity_changed)
+        order_layout.addRow(quantity_label, self.quantity_spin)
         
-        # Set scroll widget as the scroll area's widget
-        scroll_area.setWidget(scroll_widget)
+        main_layout.addWidget(order_group)
         
-        # Add scroll area to main layout
-        main_layout.addWidget(scroll_area)
-    
-    def create_almgren_chriss_tab(self):
-        """Create the Almgren-Chriss model configuration tab.
+        # Create market parameters group with custom styling
+        market_group = QGroupBox("Market Parameters")
+        market_group.setObjectName("market_params_group")
+        market_layout = QFormLayout()
+        market_layout.setVerticalSpacing(10)
+        market_layout.setHorizontalSpacing(15)
+        market_layout.setContentsMargins(15, 20, 15, 15)
+        market_group.setLayout(market_layout)
         
-        Returns:
-            QWidget: The configured tab widget
-        """
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        # Volatility with improved styling
+        volatility_label = QLabel("Volatility:")
+        volatility_label.setObjectName("form_label")
+        self.volatility_spin = QDoubleSpinBox()
+        self.volatility_spin.setObjectName("volatility_spin")
+        self.volatility_spin.setRange(0.01, 2.0)
+        self.volatility_spin.setValue(0.3)
+        self.volatility_spin.setSuffix(" (annualized)")
+        self.volatility_spin.setDecimals(2)
+        self.volatility_spin.setSingleStep(0.05)
+        self.volatility_spin.setMinimumHeight(30)
+        self.volatility_spin.valueChanged.connect(self._on_volatility_changed)
+        market_layout.addRow(volatility_label, self.volatility_spin)
         
-        # Create form layout for parameters
-        form_layout = QFormLayout()
-        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        # Fee tier with improved styling
+        fee_tier_label = QLabel("Fee Tier:")
+        fee_tier_label.setObjectName("form_label")
+        self.fee_tier_combo = QComboBox()
+        self.fee_tier_combo.setObjectName("fee_tier_combo")
+        self.fee_tier_combo.addItems(get_available_fee_tiers(self.config))
+        self.fee_tier_combo.setMinimumHeight(30)
+        self.fee_tier_combo.currentTextChanged.connect(self._on_fee_tier_changed)
+        market_layout.addRow(fee_tier_label, self.fee_tier_combo)
         
-        # Add parameter fields
-        self.ac_volatility = QDoubleSpinBox()
-        self.ac_volatility.setRange(0.01, 1.0)
-        self.ac_volatility.setSingleStep(0.01)
-        self.ac_volatility.setValue(0.2)
-        self.ac_volatility.setDecimals(2)
-        form_layout.addRow("Volatility (annual):", self.ac_volatility)
+        main_layout.addWidget(market_group)
         
-        self.ac_market_impact_permanent = QDoubleSpinBox()
-        self.ac_market_impact_permanent.setRange(0.0, 1.0)
-        self.ac_market_impact_permanent.setSingleStep(0.001)
-        self.ac_market_impact_permanent.setValue(0.1)
-        self.ac_market_impact_permanent.setDecimals(3)
-        form_layout.addRow("Permanent Market Impact:", self.ac_market_impact_permanent)
+        # Add simulate button with improved styling
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 10, 0, 10)
         
-        self.ac_market_impact_temporary = QDoubleSpinBox()
-        self.ac_market_impact_temporary.setRange(0.0, 1.0)
-        self.ac_market_impact_temporary.setSingleStep(0.001)
-        self.ac_market_impact_temporary.setValue(0.2)
-        self.ac_market_impact_temporary.setDecimals(3)
-        form_layout.addRow("Temporary Market Impact:", self.ac_market_impact_temporary)
+        self.simulate_button = QPushButton("Simulate Trade")
+        self.simulate_button.setObjectName("simulate_button")
+        self.simulate_button.setMinimumHeight(40)
+        self.simulate_button.clicked.connect(self._on_simulate_clicked)
+        button_layout.addWidget(self.simulate_button)
         
-        self.ac_risk_aversion = QDoubleSpinBox()
-        self.ac_risk_aversion.setRange(0.1, 10.0)
-        self.ac_risk_aversion.setSingleStep(0.1)
-        self.ac_risk_aversion.setValue(1.0)
-        self.ac_risk_aversion.setDecimals(1)
-        form_layout.addRow("Risk Aversion:", self.ac_risk_aversion)
-        
-        # Add form layout to tab layout
-        layout.addLayout(form_layout)
-        
-        # Add stretch to push everything to the top
-        layout.addStretch(1)
-        
-        return tab
-    
-    def create_slippage_tab(self):
-        """Create the Slippage model configuration tab.
-        
-        Returns:
-            QWidget: The configured tab widget
-        """
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        
-        # Create form layout for parameters
-        form_layout = QFormLayout()
-        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        
-        # Add parameter fields
-        self.slippage_model = QComboBox()
-        self.slippage_model.addItems(["square_root", "linear", "power_law"])
-        form_layout.addRow("Slippage Model:", self.slippage_model)
-        
-        self.slippage_market_impact = QDoubleSpinBox()
-        self.slippage_market_impact.setRange(0.01, 1.0)
-        self.slippage_market_impact.setSingleStep(0.01)
-        self.slippage_market_impact.setValue(0.1)
-        self.slippage_market_impact.setDecimals(2)
-        form_layout.addRow("Market Impact Factor:", self.slippage_market_impact)
-        
-        self.slippage_daily_volume = QSpinBox()
-        self.slippage_daily_volume.setRange(1000, 10000000)
-        self.slippage_daily_volume.setSingleStep(1000)
-        self.slippage_daily_volume.setValue(1000000)
-        self.slippage_daily_volume.setSuffix(" shares")
-        form_layout.addRow("Daily Volume:", self.slippage_daily_volume)
-        
-        # Add form layout to tab layout
-        layout.addLayout(form_layout)
-        
-        # Add stretch to push everything to the top
-        layout.addStretch(1)
-        
-        return tab
-    
-    def create_maker_taker_tab(self):
-        """Create the Maker-Taker model configuration tab.
-        
-        Returns:
-            QWidget: The configured tab widget
-        """
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        
-        # Create form layout for parameters
-        form_layout = QFormLayout()
-        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        
-        # Add parameter fields
-        self.mt_maker_rebate = QDoubleSpinBox()
-        self.mt_maker_rebate.setRange(0.0, 50.0)
-        self.mt_maker_rebate.setSingleStep(0.1)
-        self.mt_maker_rebate.setValue(2.0)
-        self.mt_maker_rebate.setDecimals(1)
-        self.mt_maker_rebate.setSuffix(" bps")
-        form_layout.addRow("Maker Rebate:", self.mt_maker_rebate)
-        
-        self.mt_taker_fee = QDoubleSpinBox()
-        self.mt_taker_fee.setRange(0.0, 50.0)
-        self.mt_taker_fee.setSingleStep(0.1)
-        self.mt_taker_fee.setValue(3.0)
-        self.mt_taker_fee.setDecimals(1)
-        self.mt_taker_fee.setSuffix(" bps")
-        form_layout.addRow("Taker Fee:", self.mt_taker_fee)
-        
-        self.mt_spread = QDoubleSpinBox()
-        self.mt_spread.setRange(0.1, 100.0)
-        self.mt_spread.setSingleStep(0.1)
-        self.mt_spread.setValue(5.0)
-        self.mt_spread.setDecimals(1)
-        self.mt_spread.setSuffix(" bps")
-        form_layout.addRow("Spread:", self.mt_spread)
-        
-        self.mt_fill_probability = QDoubleSpinBox()
-        self.mt_fill_probability.setRange(0.01, 1.0)
-        self.mt_fill_probability.setSingleStep(0.01)
-        self.mt_fill_probability.setValue(0.8)
-        self.mt_fill_probability.setDecimals(2)
-        form_layout.addRow("Fill Probability:", self.mt_fill_probability)
-        
-        self.mt_strategy = QComboBox()
-        self.mt_strategy.addItems(["taker", "maker", "mixed"])
-        form_layout.addRow("Strategy:", self.mt_strategy)
-        
-        # Add form layout to tab layout
-        layout.addLayout(form_layout)
+        main_layout.addWidget(button_container)
         
         # Add stretch to push everything to the top
-        layout.addStretch(1)
+        main_layout.addStretch(1)
         
-        return tab
+        logger.debug("Enhanced input panel UI setup complete")
     
-    def create_common_params_group(self):
-        """Create the common parameters group.
-        
-        Returns:
-            QGroupBox: The configured group box
-        """
-        group_box = QGroupBox("Common Parameters")
-        layout = QVBoxLayout(group_box)
-        
-        # Create form layout for parameters
-        form_layout = QFormLayout()
-        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        
-        # Add parameter fields
-        self.model_selector = QComboBox()
-        self.model_selector.addItems(["almgren_chriss", "slippage", "maker_taker"])
-        form_layout.addRow("Model:", self.model_selector)
-        
-        self.initial_price = QDoubleSpinBox()
-        self.initial_price.setRange(0.01, 10000.0)
-        self.initial_price.setSingleStep(0.01)
-        self.initial_price.setValue(100.0)
-        self.initial_price.setDecimals(2)
-        self.initial_price.setPrefix("$")
-        form_layout.addRow("Initial Price:", self.initial_price)
-        
-        self.total_shares = QSpinBox()
-        self.total_shares.setRange(100, 1000000)
-        self.total_shares.setSingleStep(100)
-        self.total_shares.setValue(10000)
-        self.total_shares.setSuffix(" shares")
-        form_layout.addRow("Total Shares:", self.total_shares)
-        
-        self.time_horizon = QDoubleSpinBox()
-        self.time_horizon.setRange(0.1, 10.0)
-        self.time_horizon.setSingleStep(0.1)
-        self.time_horizon.setValue(1.0)
-        self.time_horizon.setDecimals(1)
-        self.time_horizon.setSuffix(" days")
-        form_layout.addRow("Time Horizon:", self.time_horizon)
-        
-        self.num_periods = QSpinBox()
-        self.num_periods.setRange(5, 100)
-        self.num_periods.setSingleStep(1)
-        self.num_periods.setValue(20)
-        self.num_periods.setSuffix(" periods")
-        form_layout.addRow("Number of Periods:", self.num_periods)
-        
-        self.is_buy = QCheckBox("Buy Order")
-        self.is_buy.setChecked(True)
-        form_layout.addRow("", self.is_buy)
-        
-        # Add form layout to group box layout
-        layout.addLayout(form_layout)
-        
-        return group_box
-    
-    def request_execution(self):
-        """Request execution with the current parameters."""
-        self.logger.info("Execution requested")
-        
-        # Get selected model
-        model = self.model_selector.currentText()
-        
-        # Get common parameters
-        params = {
-            'model': model,
-            'initial_price': self.initial_price.value(),
-            'total_shares': self.total_shares.value(),
-            'time_horizon': self.time_horizon.value(),
-            'num_periods': self.num_periods.value(),
-            'is_buy': self.is_buy.isChecked()
+    def _initialize_parameters(self) -> None:
+        """Initialize parameters with default values."""
+        self.parameters = {
+            'exchange': self.exchange_combo.currentText(),
+            'symbol': self.symbol_combo.currentText(),
+            'order_type': self.order_type_combo.currentText().lower(),
+            'quantity': self.quantity_spin.value(),
+            'volatility': self.volatility_spin.value(),
+            'fee_tier': self.fee_tier_combo.currentText(),
         }
         
-        # Get model-specific parameters
-        if model == 'almgren_chriss':
-            params.update({
-                'volatility': self.ac_volatility.value(),
-                'market_impact_permanent': self.ac_market_impact_permanent.value(),
-                'market_impact_temporary': self.ac_market_impact_temporary.value(),
-                'risk_aversion': self.ac_risk_aversion.value()
-            })
-        elif model == 'slippage':
-            params.update({
-                'slippage_model': self.slippage_model.currentText(),
-                'market_impact_factor': self.slippage_market_impact.value(),
-                'daily_volume': self.slippage_daily_volume.value()
-            })
-        elif model == 'maker_taker':
-            params.update({
-                'maker_rebate': self.mt_maker_rebate.value(),
-                'taker_fee': self.mt_taker_fee.value(),
-                'spread': self.mt_spread.value(),
-                'fill_probability': self.mt_fill_probability.value(),
-                'strategy': self.mt_strategy.currentText()
-            })
+        # Emit signal with initial parameters
+        self.parameters_changed.emit(self.parameters)
         
-        # Emit signal with parameters
-        self.execution_requested.emit(params)
+        logger.debug(f"Parameters initialized: {self.parameters}")
     
-    def reset(self):
-        """Reset all input fields to default values."""
-        self.logger.info("Resetting input panel")
+    @pyqtSlot(str)
+    def _on_exchange_changed(self, exchange: str) -> None:
+        """Handle exchange selection change.
         
-        # Reset model selector
-        self.model_selector.setCurrentIndex(0)
+        Args:
+            exchange: Selected exchange
+        """
+        self.parameters['exchange'] = exchange
+        logger.debug(f"Exchange changed to {exchange}")
+        self.parameters_changed.emit(self.parameters)
+    
+    @pyqtSlot(str)
+    def _on_symbol_changed(self, symbol: str) -> None:
+        """Handle symbol selection change.
         
-        # Reset common parameters
-        self.initial_price.setValue(100.0)
-        self.total_shares.setValue(10000)
-        self.time_horizon.setValue(1.0)
-        self.num_periods.setValue(20)
-        self.is_buy.setChecked(True)
+        Args:
+            symbol: Selected symbol
+        """
+        self.parameters['symbol'] = symbol
+        logger.debug(f"Symbol changed to {symbol}")
+        self.parameters_changed.emit(self.parameters)
+    
+    @pyqtSlot(str)
+    def _on_order_type_changed(self, order_type: str) -> None:
+        """Handle order type selection change.
         
-        # Reset Almgren-Chriss parameters
-        self.ac_volatility.setValue(0.2)
-        self.ac_market_impact_permanent.setValue(0.1)
-        self.ac_market_impact_temporary.setValue(0.2)
-        self.ac_risk_aversion.setValue(1.0)
+        Args:
+            order_type: Selected order type
+        """
+        self.parameters['order_type'] = order_type.lower()
+        logger.debug(f"Order type changed to {order_type}")
+        self.parameters_changed.emit(self.parameters)
+    
+    @pyqtSlot(float)
+    def _on_quantity_changed(self, quantity: float) -> None:
+        """Handle quantity change.
         
-        # Reset Slippage parameters
-        self.slippage_model.setCurrentIndex(0)
-        self.slippage_market_impact.setValue(0.1)
-        self.slippage_daily_volume.setValue(1000000)
+        Args:
+            quantity: New quantity value
+        """
+        self.parameters['quantity'] = quantity
+        logger.debug(f"Quantity changed to {quantity}")
+        self.parameters_changed.emit(self.parameters)
+    
+    @pyqtSlot(float)
+    def _on_volatility_changed(self, volatility: float) -> None:
+        """Handle volatility change.
         
-        # Reset Maker-Taker parameters
-        self.mt_maker_rebate.setValue(2.0)
-        self.mt_taker_fee.setValue(3.0)
-        self.mt_spread.setValue(5.0)
-        self.mt_fill_probability.setValue(0.8)
-        self.mt_strategy.setCurrentIndex(0)
+        Args:
+            volatility: New volatility value
+        """
+        self.parameters['volatility'] = volatility
+        logger.debug(f"Volatility changed to {volatility}")
+        self.parameters_changed.emit(self.parameters)
+    
+    @pyqtSlot(str)
+    def _on_fee_tier_changed(self, fee_tier: str) -> None:
+        """Handle fee tier selection change.
+        
+        Args:
+            fee_tier: Selected fee tier
+        """
+        self.parameters['fee_tier'] = fee_tier
+        logger.debug(f"Fee tier changed to {fee_tier}")
+        self.parameters_changed.emit(self.parameters)
+    
+    @pyqtSlot()
+    def _on_simulate_clicked(self) -> None:
+        """Handle simulate button click."""
+        logger.info(f"Simulating trade with parameters: {self.parameters}")
+        self.parameters_changed.emit(self.parameters)
+    
+    def get_parameters(self) -> Dict[str, Any]:
+        """Get the current parameters.
+        
+        Returns:
+            Dictionary of current parameters
+        """
+        return self.parameters.copy()
